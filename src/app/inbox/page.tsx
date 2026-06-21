@@ -2,6 +2,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { BrandHeader } from "@/components/brand-header";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
+import { SetupAlert } from "@/components/setup-alert";
 import { requireUser } from "@/lib/auth";
 import { type InboxItem } from "@/lib/types";
 import { addInboxItem, deleteInboxItem } from "./actions";
@@ -14,10 +15,6 @@ export default async function InboxPage() {
     .from("inbox_items")
     .select("id,user_id,title,created_at")
     .order("created_at", { ascending: false });
-
-  if (error) {
-    throw new Error(error.message);
-  }
 
   const items = (data ?? []) as InboxItem[];
 
@@ -41,6 +38,14 @@ export default async function InboxPage() {
             <Plus size={18} aria-hidden="true" />
           </Button>
         </form>
+
+        {error ? (
+          <div className="mb-8">
+            <SetupAlert
+              message={`Supabase returned: ${error.message}. Apply the migration in supabase/migrations before using the inbox.`}
+            />
+          </div>
+        ) : null}
 
         <div className="overflow-hidden rounded-[28px] border border-neutral-200 bg-white">
           {items.length ? (

@@ -1,12 +1,10 @@
 import Link from "next/link";
 import { hasSupabaseConfig } from "@/lib/env";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { signOut } from "@/app/login/actions";
 
 export async function BrandHeader() {
-  const user = hasSupabaseConfig()
-    ? (await (await createClient()).auth.getUser()).data.user
-    : null;
+  const user = hasSupabaseConfig() ? await getCurrentUser() : null;
 
   return (
     <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-6 sm:px-8">

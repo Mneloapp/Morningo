@@ -3,7 +3,7 @@ import { BrandHeader } from "@/components/brand-header";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import { hasSupabaseConfig } from "@/lib/env";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/supabase/auth";
 import { signIn, signUp } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ type LoginPageProps = {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const isConfigured = hasSupabaseConfig();
-  const user = isConfigured ? (await (await createClient()).auth.getUser()).data.user : null;
+  const user = isConfigured ? await getCurrentUser() : null;
 
   if (user) {
     redirect("/dashboard");

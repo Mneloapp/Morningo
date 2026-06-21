@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { BrandHeader } from "@/components/brand-header";
 import { Button } from "@/components/button";
+import { SetupAlert } from "@/components/setup-alert";
 import { requireUser } from "@/lib/auth";
 import { type DailyBrief, type InboxItem } from "@/lib/types";
 import { generateDailyBrief } from "./actions";
@@ -43,13 +44,7 @@ export default async function DashboardPage() {
       .maybeSingle()
   ]);
 
-  if (inboxError) {
-    throw new Error(inboxError.message);
-  }
-
-  if (briefError) {
-    throw new Error(briefError.message);
-  }
+  const setupError = inboxError?.message ?? briefError?.message ?? null;
 
   const inboxItems = (inboxData ?? []) as InboxItem[];
   const brief = briefData as DailyBrief | null;
@@ -75,6 +70,14 @@ export default async function DashboardPage() {
             </Button>
           </form>
         </div>
+
+        {setupError ? (
+          <div className="mb-8">
+            <SetupAlert
+              message={`Supabase returned: ${setupError}. Apply the migration in supabase/migrations, then redeploy or refresh.`}
+            />
+          </div>
+        ) : null}
 
         <div className="mb-8 rounded-[32px] border border-neutral-200 bg-accent p-7 text-white shadow-soft">
           <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
