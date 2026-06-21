@@ -40,10 +40,16 @@ export async function signUp(formData: FormData) {
   const supabase = await createClient();
   const { email, password } = getCredentials(formData);
 
-  const { error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
+  }
+
+  if (!data.session) {
+    redirect(
+      `/login?message=${encodeURIComponent("Account created. Check your email to confirm your sign in.")}`
+    );
   }
 
   redirect("/dashboard");

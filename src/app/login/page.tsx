@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 type LoginPageProps = {
   searchParams: Promise<{
     error?: string;
+    message?: string;
   }>;
 };
 
@@ -22,7 +23,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     redirect("/dashboard");
   }
 
-  const { error } = await searchParams;
+  const { error, message } = await searchParams;
 
   return (
     <main className="min-h-screen bg-white">
@@ -51,18 +52,31 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
           ) : error ? (
             <div className="mb-5 rounded-2xl bg-neutral-100 px-4 py-3 text-sm font-medium text-accent">{error}</div>
+          ) : message ? (
+            <div className="mb-5 rounded-2xl bg-neutral-100 px-4 py-3 text-sm font-medium text-accent">{message}</div>
           ) : null}
 
           <form className="space-y-4">
-            <Input type="email" name="email" placeholder="Email address" autoComplete="email" required />
-            <Input
-              type="password"
-              name="password"
-              placeholder="Password"
-              autoComplete="current-password"
-              minLength={6}
-              required
-            />
+            <div>
+              <label htmlFor="email" className="mb-2 block text-sm font-medium text-neutral-700">
+                Email address
+              </label>
+              <Input id="email" type="email" name="email" placeholder="you@company.com" autoComplete="email" required />
+            </div>
+            <div>
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-neutral-700">
+                Password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                name="password"
+                placeholder="At least 6 characters"
+                autoComplete="current-password"
+                minLength={6}
+                required
+              />
+            </div>
             <div className="grid gap-3 pt-2 sm:grid-cols-2">
               <Button formAction={signIn}>Sign in</Button>
               <Button formAction={signUp} variant="secondary">
