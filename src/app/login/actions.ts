@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 
 function getCredentials(formData: FormData) {
@@ -15,6 +16,10 @@ function getCredentials(formData: FormData) {
 }
 
 export async function signIn(formData: FormData) {
+  if (!hasSupabaseConfig()) {
+    redirect("/login?error=Supabase%20environment%20variables%20are%20missing%20or%20invalid");
+  }
+
   const supabase = await createClient();
   const { email, password } = getCredentials(formData);
 
@@ -28,6 +33,10 @@ export async function signIn(formData: FormData) {
 }
 
 export async function signUp(formData: FormData) {
+  if (!hasSupabaseConfig()) {
+    redirect("/login?error=Supabase%20environment%20variables%20are%20missing%20or%20invalid");
+  }
+
   const supabase = await createClient();
   const { email, password } = getCredentials(formData);
 
@@ -41,6 +50,10 @@ export async function signUp(formData: FormData) {
 }
 
 export async function signOut() {
+  if (!hasSupabaseConfig()) {
+    redirect("/login");
+  }
+
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/login");

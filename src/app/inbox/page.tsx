@@ -6,6 +6,8 @@ import { requireUser } from "@/lib/auth";
 import { type InboxItem } from "@/lib/types";
 import { addInboxItem, deleteInboxItem } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function InboxPage() {
   const { supabase } = await requireUser();
   const { data, error } = await supabase

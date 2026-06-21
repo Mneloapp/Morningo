@@ -6,6 +6,8 @@ import { requireUser } from "@/lib/auth";
 import { type DailyBrief, type InboxItem } from "@/lib/types";
 import { generateDailyBrief } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 function BriefList({ title, items }: { title: string; items: string[] }) {
   return (
     <section className="rounded-[28px] border border-neutral-200 bg-white p-6">

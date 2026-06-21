@@ -2,8 +2,11 @@ import { redirect } from "next/navigation";
 import { BrandHeader } from "@/components/brand-header";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
+import { hasSupabaseConfig } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
 import { signIn, signUp } from "./actions";
+
+export const dynamic = "force-dynamic";
 
 type LoginPageProps = {
   searchParams: Promise<{
@@ -12,10 +15,8 @@ type LoginPageProps = {
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const supabase = await createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const isConfigured = hasSupabaseConfig();
+  const user = isConfigured ? (await (await createClient()).auth.getUser()).data.user : null;
 
   if (user) {
     redirect("/dashboard");
@@ -43,7 +44,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <p className="mt-2 text-sm text-neutral-500">Sign in or create your Morningo workspace.</p>
           </div>
 
-          {error ? (
+          {!isConfigured ? (
+            <div className="mb-5 rounded-2xl bg-neutral-100 px-4 py-3 text-sm font-medium leading-6 text-accent">
+              Supabase is not configured. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in Vercel
+              Environment Variables, then redeploy.
+            </div>
+          ) : error ? (
             <div className="mb-5 rounded-2xl bg-neutral-100 px-4 py-3 text-sm font-medium text-accent">{error}</div>
           ) : null}
 
