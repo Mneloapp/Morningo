@@ -142,3 +142,33 @@ export async function DELETE(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
+
+export async function PATCH(request: Request) {
+  const { error, supabase, user } = await getAuthenticatedSupabase();
+
+  if (error) {
+    return error;
+  }
+
+  const body = (await request.json().catch(() => null)) as { id?: string; scheduled_for?: string } | null;
+  const id = body?.id;
+  const scheduledFor = normalizeScheduledFor(body?.scheduled_for);
+
+  if (!id) {
+    return NextResponse.json({ error: "Item id is required." }, { status: 400 });
+  }
+
+  const { data, error: updateError } = await supabase
+    .from("inbox_items")
+    .update({ scheduled_for: scheduledFor })
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select("id,user_id,title,scheduled_for,created_at")
+    .single();
+
+  if (updateError || !data) {
+    return NextResponse.json({ error: updateError?.message ?? "Could not move item." }, { status: 400 });
+  }
+
+  return NextResponse.json({ item: data as InboxItem });
+}
