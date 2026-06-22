@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import { SetupAlert } from "@/components/setup-alert";
+import { getTodayDateString, getTomorrowDateString } from "@/lib/dates";
 import { type InboxItem } from "@/lib/types";
 
 type InboxClientProps = {
@@ -27,13 +28,13 @@ function formatCreatedAt(value: string) {
   }).format(date);
 }
 
-async function insertInboxItem(title: string) {
+async function insertInboxItem(title: string, scheduledFor: string) {
   const response = await fetch("/api/inbox-items", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ title })
+    body: JSON.stringify({ scheduled_for: scheduledFor, title })
   });
   const payload = (await response.json()) as { item?: InboxItem; error?: string };
 
@@ -47,8 +48,13 @@ async function insertInboxItem(title: string) {
 export function InboxClient({ initialItems, userId }: InboxClientProps) {
   const [items, setItems] = useState(initialItems);
   const [title, setTitle] = useState("");
+  const [scheduledFor, setScheduledFor] = useState(getTodayDateString());
   const [error, setError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const today = getTodayDateString();
+  const tomorrow = getTomorrowDateString();
+  const todayItems = items.filter((item) => item.scheduled_for === today);
+  const tomorrowItems = items.filter((item) => item.scheduled_for === tomorrow);
 
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,6 +69,7 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
       id: `optimistic-${Date.now()}`,
       user_id: userId,
       title: nextTitle,
+      scheduled_for: scheduledFor,
       created_at: new Date().toISOString()
     };
 
@@ -72,7 +79,7 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
     setItems((currentItems) => [optimisticItem, ...currentItems]);
 
     try {
-      const savedItem = await insertInboxItem(nextTitle);
+      const savedItem = await insertInboxItem(nextTitle, scheduledFor);
       setItems((currentItems) => currentItems.map((item) => (item.id === optimisticItem.id ? savedItem : item)));
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Could not save item.";
@@ -82,6 +89,37 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
     } finally {
       setIsAdding(false);
     }
+  }
+
+  function renderItems(sectionItems: InboxItem[], emptyMessage: string) {
+    if (!sectionItems.length) {
+      return (
+        <div className="px-6 py-12 text-center">
+          <p className="text-sm font-medium text-neutral-500">{emptyMessage}</p>
+        </div>
+      );
+    }
+
+    return (
+      <ul className="divide-y divide-neutral-200">
+        {sectionItems.map((item) => (
+          <li key={item.id} className="flex items-center justify-between gap-4 px-5 py-4">
+            <div>
+              <p className="font-medium text-accent">{item.title}</p>
+              <p className="mt-1 text-xs text-neutral-500">{formatCreatedAt(item.created_at)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleDelete(item)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
+              aria-label={`Delete ${item.title}`}
+            >
+              <Trash2 size={17} aria-hidden="true" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
   }
 
   async function handleDelete(itemToDelete: InboxItem) {
@@ -117,7 +155,7 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
         </div>
       </div>
 
-      <form onSubmit={handleAdd} className="mb-8 flex gap-3 rounded-[28px] border border-neutral-200 bg-white p-3 shadow-soft">
+      <form onSubmit={handleAdd} className="mb-8 grid gap-3 rounded-[28px] border border-neutral-200 bg-white p-3 shadow-soft sm:grid-cols-[1fr_auto_auto]">
         <Input
           value={title}
           onChange={(event) => setTitle(event.target.value)}
@@ -126,6 +164,23 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
           aria-label="Add an inbox item"
           required
         />
+        <div className="grid grid-cols-2 rounded-full bg-neutral-100 p-1">
+          {[
+            { label: "Today", value: today },
+            { label: "Tomorrow", value: tomorrow }
+          ].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setScheduledFor(option.value)}
+              className={`h-10 rounded-full px-4 text-sm font-semibold transition ${
+                scheduledFor === option.value ? "bg-white text-accent shadow-sm" : "text-neutral-500 hover:text-accent"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
         <Button type="submit" className="h-12 w-12 shrink-0 px-0" aria-label="Add item" disabled={isAdding}>
           <Plus size={18} aria-hidden="true" />
         </Button>
@@ -137,32 +192,22 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-[28px] border border-neutral-200 bg-white">
-        {items.length ? (
-          <ul className="divide-y divide-neutral-200">
-            {items.map((item) => (
-              <li key={item.id} className="flex items-center justify-between gap-4 px-5 py-4">
-                <div>
-                  <p className="font-medium text-accent">{item.title}</p>
-                  <p className="mt-1 text-xs text-neutral-500">{formatCreatedAt(item.created_at)}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(item)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
-                  aria-label={`Delete ${item.title}`}
-                >
-                  <Trash2 size={17} aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="px-6 py-16 text-center">
-            <p className="text-lg font-semibold text-accent">Nothing waiting.</p>
-            <p className="mt-2 text-sm text-neutral-500">Add the first thing Morningo should help you sort.</p>
+      <div className="grid gap-6">
+        <section className="overflow-hidden rounded-[28px] border border-neutral-200 bg-white">
+          <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-neutral-500">Today</h2>
+            <span className="text-sm font-medium text-neutral-500">{todayItems.length}</span>
           </div>
-        )}
+          {renderItems(todayItems, "Nothing scheduled for today.")}
+        </section>
+
+        <section className="overflow-hidden rounded-[28px] border border-neutral-200 bg-white">
+          <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-neutral-500">Tomorrow</h2>
+            <span className="text-sm font-medium text-neutral-500">{tomorrowItems.length}</span>
+          </div>
+          {renderItems(tomorrowItems, "Nothing scheduled for tomorrow.")}
+        </section>
       </div>
     </>
   );

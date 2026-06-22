@@ -2,6 +2,7 @@ export type InboxItem = {
   id: string;
   user_id: string;
   title: string;
+  scheduled_for: string;
   created_at: string;
 };
 

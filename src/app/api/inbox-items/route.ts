@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getTodayDateString, getTomorrowDateString } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
 import { type InboxItem } from "@/lib/types";
 
@@ -16,7 +17,14 @@ async function getAuthenticatedSupabase() {
   return { error: null, supabase, user };
 }
 
-async function insertInboxItem(title: string, userId: string) {
+function normalizeScheduledFor(value: string | undefined) {
+  const today = getTodayDateString();
+  const tomorrow = getTomorrowDateString();
+
+  return value === tomorrow ? tomorrow : today;
+}
+
+async function insertInboxItem(title: string, scheduledFor: string, userId: string) {
   const { error, supabase } = await getAuthenticatedSupabase();
 
   if (error) {
@@ -24,6 +32,7 @@ async function insertInboxItem(title: string, userId: string) {
   }
 
   const payload = {
+    scheduled_for: scheduledFor,
     title,
     user_id: userId
   };
@@ -31,11 +40,46 @@ async function insertInboxItem(title: string, userId: string) {
   const { data, error: insertError } = await supabase
     .from("inbox_items")
     .insert(payload)
-    .select("id,user_id,title,created_at")
+    .select("id,user_id,title,scheduled_for,created_at")
     .single();
 
   if (!insertError && data) {
     return NextResponse.json({ item: data as InboxItem });
+  }
+
+  if (insertError?.message.includes("scheduled_for")) {
+    const { data: retryData, error: retryError } = await supabase
+      .from("inbox_items")
+      .insert({
+        title,
+        user_id: userId
+      })
+      .select("id,user_id,title,created_at")
+      .single();
+
+    if (retryError?.message.includes('null value in column "content"')) {
+      const { data: contentRetryData, error: contentRetryError } = await supabase
+        .from("inbox_items")
+        .insert({
+          content: title,
+          title,
+          user_id: userId
+        })
+        .select("id,user_id,title,created_at")
+        .single();
+
+      if (contentRetryError || !contentRetryData) {
+        return NextResponse.json({ error: contentRetryError?.message ?? "Could not save item." }, { status: 400 });
+      }
+
+      return NextResponse.json({ item: { ...contentRetryData, scheduled_for: scheduledFor } as InboxItem });
+    }
+
+    if (retryError || !retryData) {
+      return NextResponse.json({ error: retryError?.message ?? "Could not save item." }, { status: 400 });
+    }
+
+    return NextResponse.json({ item: { ...retryData, scheduled_for: scheduledFor } as InboxItem });
   }
 
   if (!insertError?.message.includes('null value in column "content"')) {
@@ -48,7 +92,7 @@ async function insertInboxItem(title: string, userId: string) {
       ...payload,
       content: title
     })
-    .select("id,user_id,title,created_at")
+    .select("id,user_id,title,scheduled_for,created_at")
     .single();
 
   if (retryError || !retryData) {
@@ -65,14 +109,15 @@ export async function POST(request: Request) {
     return error;
   }
 
-  const body = (await request.json().catch(() => null)) as { title?: string } | null;
+  const body = (await request.json().catch(() => null)) as { scheduled_for?: string; title?: string } | null;
   const title = body?.title?.trim();
+  const scheduledFor = normalizeScheduledFor(body?.scheduled_for);
 
   if (!title) {
     return NextResponse.json({ error: "Title is required." }, { status: 400 });
   }
 
-  return insertInboxItem(title, user.id);
+  return insertInboxItem(title, scheduledFor, user.id);
 }
 
 export async function DELETE(request: Request) {

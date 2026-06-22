@@ -4,6 +4,7 @@ import { BrandHeader } from "@/components/brand-header";
 import { Button } from "@/components/button";
 import { SetupAlert } from "@/components/setup-alert";
 import { requireUser } from "@/lib/auth";
+import { getTodayDateString, getTomorrowDateString } from "@/lib/dates";
 import { type InboxItem } from "@/lib/types";
 import { generateDailyBrief } from "./actions";
 
@@ -30,15 +31,27 @@ function BriefList({ title, items }: { title: string; items: string[] }) {
 
 export default async function DashboardPage() {
   const { supabase, user } = await requireUser();
-  const { data: inboxData, error: inboxError } = await supabase
+  const result = await supabase
     .from("inbox_items")
-    .select("id,user_id,title,created_at")
+    .select("id,user_id,title,scheduled_for,created_at")
     .order("created_at", { ascending: false })
-    .limit(6);
+    .limit(25);
+  const fallbackResult = result.error?.message.includes("scheduled_for")
+    ? await supabase.from("inbox_items").select("id,user_id,title,created_at").order("created_at", { ascending: false }).limit(25)
+    : null;
 
+  const inboxError = fallbackResult?.error ?? (fallbackResult ? null : result.error);
   const setupError = inboxError?.message ?? null;
+  const today = getTodayDateString();
+  const tomorrow = getTomorrowDateString();
 
-  const inboxItems = (inboxData ?? []) as InboxItem[];
+  const inboxItems = ((fallbackResult?.data ?? result.data ?? []) as Omit<InboxItem, "scheduled_for">[]).map((item) => ({
+    ...item,
+    scheduled_for: "scheduled_for" in item ? item.scheduled_for : today
+  })) as InboxItem[];
+  const todayItems = inboxItems.filter((item) => item.scheduled_for === today);
+  const tomorrowItems = inboxItems.filter((item) => item.scheduled_for === tomorrow);
+  const suggestedNextAction = todayItems[0]?.title ?? tomorrowItems[0]?.title;
 
   return (
     <main className="min-h-screen bg-white">
@@ -75,7 +88,7 @@ export default async function DashboardPage() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/55">Suggested Next Action</p>
               <p className="mt-4 max-w-3xl text-2xl font-semibold leading-9">
-                {inboxItems[0]?.title ?? "Generate your first brief to turn loose inbox items into a plan."}
+                {suggestedNextAction ?? "Generate your first brief to turn loose inbox items into a plan."}
               </p>
             </div>
             <Link
@@ -89,8 +102,8 @@ export default async function DashboardPage() {
         </div>
 
         <div className="grid gap-5 lg:grid-cols-3">
-          <BriefList title="Focus Today" items={inboxItems.slice(0, 3).map((item) => item.title)} />
-          <BriefList title="Can Wait" items={inboxItems.slice(3, 6).map((item) => item.title)} />
+          <BriefList title="Focus Today" items={todayItems.slice(0, 5).map((item) => item.title)} />
+          <BriefList title="Can Wait" items={tomorrowItems.slice(0, 5).map((item) => item.title)} />
           <BriefList title="Risks" items={[]} />
         </div>
       </section>
