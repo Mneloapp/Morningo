@@ -1,11 +1,10 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import { SetupAlert } from "@/components/setup-alert";
-import { createClient } from "@/lib/supabase/client";
 import { type InboxItem } from "@/lib/types";
 
 type InboxClientProps = {
@@ -28,49 +27,21 @@ function formatCreatedAt(value: string) {
   }).format(date);
 }
 
-async function insertInboxItem(title: string, userId: string) {
-  const supabase = createClient();
-  const payload = {
-    title,
-    user_id: userId
-  };
+async function insertInboxItem(title: string) {
+  const response = await fetch("/api/inbox-items", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ title })
+  });
+  const payload = (await response.json()) as { item?: InboxItem; error?: string };
 
-  const { data, error } = await supabase
-    .from("inbox_items")
-    .insert(payload)
-    .select("id,user_id,title,created_at")
-    .single();
-
-  if (!error) {
-    if (!data) {
-      throw new Error("Supabase saved the item but did not return it.");
-    }
-
-    return data as InboxItem;
+  if (!response.ok || !payload.item) {
+    throw new Error(payload.error ?? "Could not save item.");
   }
 
-  if (!error.message.includes('null value in column "content"')) {
-    throw new Error(error.message);
-  }
-
-  const { data: retryData, error: retryError } = await supabase
-    .from("inbox_items")
-    .insert({
-      ...payload,
-      content: title
-    })
-    .select("id,user_id,title,created_at")
-    .single();
-
-  if (retryError) {
-    throw new Error(retryError.message);
-  }
-
-  if (!retryData) {
-    throw new Error("Supabase saved the item but did not return it.");
-  }
-
-  return retryData as InboxItem;
+  return payload.item;
 }
 
 export function InboxClient({ initialItems, userId }: InboxClientProps) {
@@ -78,7 +49,6 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
-  const supabase = useMemo(() => createClient(), []);
 
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -102,7 +72,7 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
     setItems((currentItems) => [optimisticItem, ...currentItems]);
 
     try {
-      const savedItem = await insertInboxItem(nextTitle, userId);
+      const savedItem = await insertInboxItem(nextTitle);
       setItems((currentItems) => currentItems.map((item) => (item.id === optimisticItem.id ? savedItem : item)));
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Could not save item.";
@@ -120,11 +90,18 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
     setError(null);
     setItems((currentItems) => currentItems.filter((item) => item.id !== itemToDelete.id));
 
-    const { error: deleteError } = await supabase.from("inbox_items").delete().eq("id", itemToDelete.id);
+    const response = await fetch("/api/inbox-items", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ id: itemToDelete.id })
+    });
+    const payload = (await response.json()) as { error?: string };
 
-    if (deleteError) {
+    if (!response.ok) {
       setItems(previousItems);
-      setError(deleteError.message);
+      setError(payload.error ?? "Could not delete item.");
     }
   }
 
