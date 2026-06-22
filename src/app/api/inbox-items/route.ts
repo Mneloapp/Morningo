@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { type InboxItem } from "@/lib/types";
 
 const inboxItemSelect =
-  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,completed_at,created_at";
+  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,reminder_at,confirmed_at,completed_at,created_at";
 
 async function getAuthenticatedSupabase() {
   const supabase = await createClient();
@@ -159,13 +159,14 @@ export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => null)) as { id?: string; scheduled_for?: string; status?: InboxItem["status"] } | null;
   const id = body?.id;
   const scheduledFor = normalizeScheduledFor(body?.scheduled_for);
-  const status = body?.status === "done" ? "done" : "planned";
+  const status = body?.status === "done" ? "done" : body?.status === "confirmed" ? "confirmed" : "planned";
 
   if (!id) {
     return NextResponse.json({ error: "Item id is required." }, { status: 400 });
   }
 
   const updates = {
+    confirmed_at: status === "confirmed" || status === "done" ? new Date().toISOString() : null,
     completed_at: status === "done" ? new Date().toISOString() : null,
     scheduled_for: scheduledFor,
     status

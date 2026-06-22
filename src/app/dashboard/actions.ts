@@ -15,7 +15,7 @@ const briefSchema = z.object({
 });
 
 const inboxItemSelect =
-  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,completed_at,created_at";
+  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,reminder_at,confirmed_at,completed_at,created_at";
 
 function fallbackBrief(items: InboxItem[]) {
   const today = getTodayDateString();
@@ -24,11 +24,20 @@ function fallbackBrief(items: InboxItem[]) {
   const todayTitles = plannedItems.filter((item) => item.scheduled_for === today).map((item) => item.title);
   const tomorrowTitles = plannedItems.filter((item) => item.scheduled_for === tomorrow).map((item) => item.title);
   const highPriorityTitles = plannedItems.filter((item) => item.priority === "high").map((item) => item.title);
+  const overdueTitles = plannedItems
+    .filter((item) => item.reminder_at && new Date(item.reminder_at).getTime() <= Date.now() && item.status !== "done")
+    .map((item) => item.title);
 
   return {
     focus_today: todayTitles.slice(0, 5).length ? todayTitles.slice(0, 5) : ["Choose one meaningful outcome for today"],
     can_wait: tomorrowTitles.slice(0, 5),
-    risks: highPriorityTitles.length ? highPriorityTitles.slice(0, 3) : todayTitles.length > 5 ? ["Today has more than five open loops; reduce scope before adding more"] : [],
+    risks: overdueTitles.length
+      ? overdueTitles.slice(0, 3)
+      : highPriorityTitles.length
+        ? highPriorityTitles.slice(0, 3)
+        : todayTitles.length > 5
+          ? ["Today has more than five open loops; reduce scope before adding more"]
+          : [],
     suggested_next_action: todayTitles[0] ?? tomorrowTitles[0] ?? "Add the first inbox item you want Morningo to prioritize"
   };
 }
@@ -55,12 +64,14 @@ export async function generateDailyBrief() {
     assistant_reason: item.assistant_reason ?? null,
     calendar_starts_at: item.calendar_starts_at ?? null,
     category: item.category ?? "general",
+    confirmed_at: item.confirmed_at ?? null,
     completed_at: item.completed_at ?? null,
     created_at: item.created_at,
     id: item.id,
     priority: item.priority ?? "medium",
     scheduled_for: item.scheduled_for ?? today,
     status: item.status ?? "planned",
+    reminder_at: item.reminder_at ?? null,
     suggested_next_action: item.suggested_next_action ?? null,
     title: item.title,
     user_id: item.user_id
@@ -94,6 +105,8 @@ export async function generateDailyBrief() {
               category: item.category,
               priority: item.priority,
               reason: item.assistant_reason,
+              reminder_at: item.reminder_at,
+              status: item.status,
               title: item.title
             })),
             tomorrow,
@@ -101,6 +114,8 @@ export async function generateDailyBrief() {
               category: item.category,
               priority: item.priority,
               reason: item.assistant_reason,
+              reminder_at: item.reminder_at,
+              status: item.status,
               title: item.title
             })),
             completed_items: doneItems.map((item) => item.title)

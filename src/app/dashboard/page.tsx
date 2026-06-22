@@ -11,7 +11,7 @@ import { generateDailyBrief } from "./actions";
 export const dynamic = "force-dynamic";
 
 const inboxItemSelect =
-  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,completed_at,created_at";
+  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,reminder_at,confirmed_at,completed_at,created_at";
 
 function BriefList({ title, items }: { title: string; items: string[] }) {
   return (
@@ -52,12 +52,14 @@ export default async function DashboardPage() {
     assistant_reason: item.assistant_reason ?? null,
     calendar_starts_at: item.calendar_starts_at ?? null,
     category: item.category ?? "general",
+    confirmed_at: item.confirmed_at ?? null,
     completed_at: item.completed_at ?? null,
     created_at: item.created_at,
     id: item.id,
     priority: item.priority ?? "medium",
     scheduled_for: item.scheduled_for ?? today,
     status: item.status ?? "planned",
+    reminder_at: item.reminder_at ?? null,
     suggested_next_action: item.suggested_next_action ?? null,
     title: item.title,
     user_id: item.user_id

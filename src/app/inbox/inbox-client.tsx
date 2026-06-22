@@ -1,7 +1,7 @@
 "use client";
 
 import { type DragEvent, type FormEvent, useState } from "react";
-import { CalendarPlus, Check, Plus, Trash2 } from "lucide-react";
+import { Bell, CalendarPlus, Check, CircleCheck, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import { SetupAlert } from "@/components/setup-alert";
@@ -26,6 +26,54 @@ function formatCreatedAt(value: string) {
     hour: "numeric",
     minute: "2-digit"
   }).format(date);
+}
+
+function getPriorityRank(priority: InboxItem["priority"]) {
+  return { high: 0, medium: 1, low: 2 }[priority];
+}
+
+function getTaskTime(item: InboxItem) {
+  const candidate = item.calendar_starts_at ?? item.reminder_at ?? item.created_at;
+  const date = new Date(candidate);
+
+  return Number.isNaN(date.getTime()) ? Number.MAX_SAFE_INTEGER : date.getTime();
+}
+
+function sortAssistantFirst(sectionItems: InboxItem[]) {
+  return [...sectionItems].sort((first, second) => {
+    const priorityDelta = getPriorityRank(first.priority) - getPriorityRank(second.priority);
+
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    return getTaskTime(first) - getTaskTime(second);
+  });
+}
+
+function getReminderState(item: InboxItem) {
+  if (item.status === "done") {
+    return { label: "Done", tone: "bg-neutral-100 text-neutral-500" };
+  }
+
+  if (!item.reminder_at) {
+    return { label: item.status === "confirmed" ? "Confirmed" : "Needs confirmation", tone: "bg-neutral-100 text-neutral-500" };
+  }
+
+  const reminderAt = new Date(item.reminder_at);
+
+  if (Number.isNaN(reminderAt.getTime())) {
+    return { label: item.status === "confirmed" ? "Confirmed" : "Needs confirmation", tone: "bg-neutral-100 text-neutral-500" };
+  }
+
+  if (reminderAt.getTime() <= Date.now()) {
+    return { label: item.status === "confirmed" ? "Due now" : "Confirm now", tone: "bg-accent text-white" };
+  }
+
+  return {
+    label: `${item.status === "confirmed" ? "Reminder" : "Confirm by"} ${formatCreatedAt(item.reminder_at)}`,
+    tone: "bg-neutral-100 text-neutral-600"
+  };
 }
 
 async function insertInboxItem(title: string, scheduledFor: string) {
@@ -95,9 +143,9 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
   const today = getTodayDateString();
   const tomorrow = getTomorrowDateString();
   const plannedItems = items.filter((item) => item.status !== "done");
-  const todayItems = plannedItems.filter((item) => item.scheduled_for === today);
-  const tomorrowItems = plannedItems.filter((item) => item.scheduled_for === tomorrow);
-  const doneItems = items.filter((item) => item.status === "done");
+  const todayItems = sortAssistantFirst(plannedItems.filter((item) => item.scheduled_for === today));
+  const tomorrowItems = sortAssistantFirst(plannedItems.filter((item) => item.scheduled_for === tomorrow));
+  const doneItems = sortAssistantFirst(items.filter((item) => item.status === "done"));
 
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -119,6 +167,8 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
       suggested_next_action: null,
       assistant_reason: null,
       calendar_starts_at: null,
+      reminder_at: null,
+      confirmed_at: null,
       completed_at: null,
       created_at: new Date().toISOString()
     };
@@ -174,7 +224,13 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
     setItems((currentItems) =>
       currentItems.map((item) =>
         item.id === itemToMove.id
-          ? { ...item, completed_at: nextStatus === "done" ? new Date().toISOString() : null, scheduled_for: nextScheduledFor, status: nextStatus }
+          ? {
+              ...item,
+              confirmed_at: nextStatus === "confirmed" || nextStatus === "done" ? new Date().toISOString() : null,
+              completed_at: nextStatus === "done" ? new Date().toISOString() : null,
+              scheduled_for: nextScheduledFor,
+              status: nextStatus
+            }
           : item
       )
     );
@@ -197,7 +253,9 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
     setError(null);
     setItems((currentItems) =>
       currentItems.map((item) =>
-        item.id === itemToComplete.id ? { ...item, completed_at: new Date().toISOString(), status: "done" } : item
+        item.id === itemToComplete.id
+          ? { ...item, completed_at: new Date().toISOString(), confirmed_at: item.confirmed_at ?? new Date().toISOString(), status: "done" }
+          : item
       )
     );
 
@@ -206,6 +264,26 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
       setItems((currentItems) => currentItems.map((item) => (item.id === completedItem.id ? completedItem : item)));
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Could not complete item.";
+      setItems(previousItems);
+      setError(message);
+    }
+  }
+
+  async function handleConfirm(itemToConfirm: InboxItem) {
+    const previousItems = items;
+
+    setError(null);
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === itemToConfirm.id ? { ...item, confirmed_at: new Date().toISOString(), status: "confirmed" } : item
+      )
+    );
+
+    try {
+      const confirmedItem = await moveInboxItem(itemToConfirm.id, itemToConfirm.scheduled_for, "confirmed");
+      setItems((currentItems) => currentItems.map((item) => (item.id === confirmedItem.id ? confirmedItem : item)));
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Could not confirm item.";
       setItems(previousItems);
       setError(message);
     }
@@ -222,43 +300,66 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
 
     return (
       <ul className="divide-y divide-neutral-200">
-        {sectionItems.map((item) => (
-          <li
-            key={item.id}
-            draggable={!item.id.startsWith("optimistic-")}
-            onDragEnd={handleDragEnd}
-            onDragStart={(event) => handleDragStart(event, item)}
-            className={`flex cursor-grab items-center justify-between gap-4 px-5 py-4 transition active:cursor-grabbing ${
-              draggedItemId === item.id ? "bg-neutral-50 opacity-60" : "bg-white"
-            }`}
-          >
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-medium text-accent">{item.title}</p>
-                <span className="rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-500">
-                  {item.priority}
-                </span>
-                <span className="rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-500">
-                  {item.category.replace("_", " ")}
-                </span>
+        {sectionItems.map((item) => {
+          const reminder = getReminderState(item);
+
+          return (
+            <li
+              key={item.id}
+              draggable={!item.id.startsWith("optimistic-")}
+              onDragEnd={handleDragEnd}
+              onDragStart={(event) => handleDragStart(event, item)}
+              className={`flex cursor-grab items-center justify-between gap-4 px-5 py-4 transition active:cursor-grabbing ${
+                draggedItemId === item.id ? "bg-neutral-50 opacity-60" : "bg-white"
+              }`}
+            >
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-medium text-accent">{item.title}</p>
+                  <span className="rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-500">
+                    {item.priority}
+                  </span>
+                  <span className="rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-500">
+                    {item.category.replace("_", " ")}
+                  </span>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold uppercase ${reminder.tone}`}>
+                    <Bell size={12} aria-hidden="true" />
+                    {reminder.label}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-neutral-500">
+                  {item.completed_at
+                    ? `Done ${formatCreatedAt(item.completed_at)}`
+                    : item.confirmed_at
+                      ? `Confirmed ${formatCreatedAt(item.confirmed_at)}`
+                      : formatCreatedAt(item.created_at)}
+                </p>
+                {item.suggested_next_action ? <p className="mt-2 text-sm leading-5 text-neutral-600">{item.suggested_next_action}</p> : null}
+                {item.assistant_reason ? <p className="mt-1 text-xs leading-5 text-neutral-500">{item.assistant_reason}</p> : null}
               </div>
-              <p className="mt-1 text-xs text-neutral-500">{item.completed_at ? `Done ${formatCreatedAt(item.completed_at)}` : formatCreatedAt(item.created_at)}</p>
-              {item.suggested_next_action ? <p className="mt-2 text-sm leading-5 text-neutral-600">{item.suggested_next_action}</p> : null}
-              {item.assistant_reason ? <p className="mt-1 text-xs leading-5 text-neutral-500">{item.assistant_reason}</p> : null}
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              {getCalendarUrl(item) ? (
-                <a
-                  href={getCalendarUrl(item) ?? undefined}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
-                  aria-label={`Add ${item.title} to calendar`}
-                >
-                  <CalendarPlus size={17} aria-hidden="true" />
-                </a>
-              ) : null}
-              {showDone ? (
+              <div className="flex shrink-0 items-center gap-1">
+                {getCalendarUrl(item) ? (
+                  <a
+                    href={getCalendarUrl(item) ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
+                    aria-label={`Add ${item.title} to calendar`}
+                  >
+                    <CalendarPlus size={17} aria-hidden="true" />
+                  </a>
+                ) : null}
+                {showDone && item.status !== "confirmed" ? (
+                  <button
+                    type="button"
+                    onClick={() => handleConfirm(item)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
+                    aria-label={`Confirm ${item.title}`}
+                  >
+                    <CircleCheck size={17} aria-hidden="true" />
+                  </button>
+                ) : null}
+                {showDone ? (
                 <button
                   type="button"
                   onClick={() => handleMarkDone(item)}
@@ -278,7 +379,8 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
               </button>
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
     );
   }

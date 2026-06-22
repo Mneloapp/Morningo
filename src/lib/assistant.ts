@@ -63,6 +63,18 @@ function extractCalendarStart(title: string, scheduledFor: string, category: Inb
   return `${scheduledFor}T${hour}:${minute}:00+04:00`;
 }
 
+function getReminderAt(calendarStartsAt: string | null, scheduledFor: string) {
+  if (calendarStartsAt) {
+    const start = new Date(calendarStartsAt);
+
+    if (!Number.isNaN(start.getTime())) {
+      return new Date(start.getTime() - 30 * 60 * 1000).toISOString();
+    }
+  }
+
+  return `${scheduledFor}T09:00:00+04:00`;
+}
+
 function getSuggestedNextAction(title: string, category: InboxItem["category"]) {
   if (category === "meeting") {
     return `Confirm agenda and owner for: ${title}`;
@@ -96,12 +108,14 @@ function getReason(category: InboxItem["category"], priority: InboxItem["priorit
 export function analyzeInboxItem(title: string, scheduledFor: string) {
   const category = getCategory(title);
   const priority = getPriority(title, scheduledFor, category);
+  const calendarStartsAt = extractCalendarStart(title, scheduledFor, category);
 
   return {
     assistant_reason: getReason(category, priority, scheduledFor),
-    calendar_starts_at: extractCalendarStart(title, scheduledFor, category),
+    calendar_starts_at: calendarStartsAt,
     category,
     priority,
+    reminder_at: getReminderAt(calendarStartsAt, scheduledFor),
     suggested_next_action: getSuggestedNextAction(title, category)
   };
 }
