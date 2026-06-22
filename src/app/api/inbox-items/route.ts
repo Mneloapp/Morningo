@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
+import { analyzeInboxItem } from "@/lib/assistant";
 import { getTodayDateString, getTomorrowDateString } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
 import { type InboxItem } from "@/lib/types";
+
+const inboxItemSelect =
+  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,completed_at,created_at";
 
 async function getAuthenticatedSupabase() {
   const supabase = await createClient();
@@ -32,7 +36,9 @@ async function insertInboxItem(title: string, scheduledFor: string, userId: stri
   }
 
   const payload = {
+    ...analyzeInboxItem(title, scheduledFor),
     scheduled_for: scheduledFor,
+    status: "planned",
     title,
     user_id: userId
   };
@@ -40,7 +46,7 @@ async function insertInboxItem(title: string, scheduledFor: string, userId: stri
   const { data, error: insertError } = await supabase
     .from("inbox_items")
     .insert(payload)
-    .select("id,user_id,title,scheduled_for,created_at")
+    .select(inboxItemSelect)
     .single();
 
   if (!insertError && data) {
@@ -50,10 +56,10 @@ async function insertInboxItem(title: string, scheduledFor: string, userId: stri
   if (insertError?.message.includes("scheduled_for")) {
     const { data: retryData, error: retryError } = await supabase
       .from("inbox_items")
-      .insert({
-        title,
-        user_id: userId
-      })
+        .insert({
+          title,
+          user_id: userId
+        })
       .select("id,user_id,title,created_at")
       .single();
 
@@ -92,7 +98,7 @@ async function insertInboxItem(title: string, scheduledFor: string, userId: stri
       ...payload,
       content: title
     })
-    .select("id,user_id,title,scheduled_for,created_at")
+    .select(inboxItemSelect)
     .single();
 
   if (retryError || !retryData) {
@@ -150,20 +156,27 @@ export async function PATCH(request: Request) {
     return error;
   }
 
-  const body = (await request.json().catch(() => null)) as { id?: string; scheduled_for?: string } | null;
+  const body = (await request.json().catch(() => null)) as { id?: string; scheduled_for?: string; status?: InboxItem["status"] } | null;
   const id = body?.id;
   const scheduledFor = normalizeScheduledFor(body?.scheduled_for);
+  const status = body?.status === "done" ? "done" : "planned";
 
   if (!id) {
     return NextResponse.json({ error: "Item id is required." }, { status: 400 });
   }
 
+  const updates = {
+    completed_at: status === "done" ? new Date().toISOString() : null,
+    scheduled_for: scheduledFor,
+    status
+  };
+
   const { data, error: updateError } = await supabase
     .from("inbox_items")
-    .update({ scheduled_for: scheduledFor })
+    .update(updates)
     .eq("id", id)
     .eq("user_id", user.id)
-    .select("id,user_id,title,scheduled_for,created_at")
+    .select(inboxItemSelect)
     .single();
 
   if (updateError || !data) {

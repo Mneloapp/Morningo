@@ -14,16 +14,21 @@ const briefSchema = z.object({
   suggested_next_action: z.string().min(1)
 });
 
+const inboxItemSelect =
+  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,completed_at,created_at";
+
 function fallbackBrief(items: InboxItem[]) {
   const today = getTodayDateString();
   const tomorrow = getTomorrowDateString();
-  const todayTitles = items.filter((item) => item.scheduled_for === today).map((item) => item.title);
-  const tomorrowTitles = items.filter((item) => item.scheduled_for === tomorrow).map((item) => item.title);
+  const plannedItems = items.filter((item) => item.status !== "done");
+  const todayTitles = plannedItems.filter((item) => item.scheduled_for === today).map((item) => item.title);
+  const tomorrowTitles = plannedItems.filter((item) => item.scheduled_for === tomorrow).map((item) => item.title);
+  const highPriorityTitles = plannedItems.filter((item) => item.priority === "high").map((item) => item.title);
 
   return {
     focus_today: todayTitles.slice(0, 5).length ? todayTitles.slice(0, 5) : ["Choose one meaningful outcome for today"],
     can_wait: tomorrowTitles.slice(0, 5),
-    risks: todayTitles.length > 5 ? ["Today has more than five open loops; reduce scope before adding more"] : [],
+    risks: highPriorityTitles.length ? highPriorityTitles.slice(0, 3) : todayTitles.length > 5 ? ["Today has more than five open loops; reduce scope before adding more"] : [],
     suggested_next_action: todayTitles[0] ?? tomorrowTitles[0] ?? "Add the first inbox item you want Morningo to prioritize"
   };
 }
@@ -32,10 +37,10 @@ export async function generateDailyBrief() {
   const { supabase, user } = await requireUser();
   const result = await supabase
     .from("inbox_items")
-    .select("id,user_id,title,scheduled_for,created_at")
+    .select(inboxItemSelect)
     .order("created_at", { ascending: false })
     .limit(25);
-  const fallbackResult = result.error?.message.includes("scheduled_for")
+  const fallbackResult = result.error
     ? await supabase.from("inbox_items").select("id,user_id,title,created_at").order("created_at", { ascending: false }).limit(25)
     : null;
   const error = fallbackResult?.error ?? (fallbackResult ? null : result.error);
@@ -46,13 +51,25 @@ export async function generateDailyBrief() {
 
   const today = getTodayDateString();
   const tomorrow = getTomorrowDateString();
-  const items = ((fallbackResult?.data ?? result.data ?? []) as Omit<InboxItem, "scheduled_for">[]).map((item) => ({
-    ...item,
-    scheduled_for: "scheduled_for" in item ? item.scheduled_for : today
+  const items = ((fallbackResult?.data ?? result.data ?? []) as Partial<InboxItem>[]).map((item) => ({
+    assistant_reason: item.assistant_reason ?? null,
+    calendar_starts_at: item.calendar_starts_at ?? null,
+    category: item.category ?? "general",
+    completed_at: item.completed_at ?? null,
+    created_at: item.created_at,
+    id: item.id,
+    priority: item.priority ?? "medium",
+    scheduled_for: item.scheduled_for ?? today,
+    status: item.status ?? "planned",
+    suggested_next_action: item.suggested_next_action ?? null,
+    title: item.title,
+    user_id: item.user_id
   })) as InboxItem[];
   let brief = fallbackBrief(items);
-  const todayItems = items.filter((item) => item.scheduled_for === today);
-  const tomorrowItems = items.filter((item) => item.scheduled_for === tomorrow);
+  const plannedItems = items.filter((item) => item.status !== "done");
+  const doneItems = items.filter((item) => item.status === "done");
+  const todayItems = plannedItems.filter((item) => item.scheduled_for === today);
+  const tomorrowItems = plannedItems.filter((item) => item.scheduled_for === tomorrow);
 
   if (process.env.OPENAI_API_KEY) {
     const openai = new OpenAI({
@@ -73,9 +90,20 @@ export async function generateDailyBrief() {
           role: "user",
           content: JSON.stringify({
             today,
-            today_items: todayItems.map((item) => item.title),
+            today_items: todayItems.map((item) => ({
+              category: item.category,
+              priority: item.priority,
+              reason: item.assistant_reason,
+              title: item.title
+            })),
             tomorrow,
-            tomorrow_items: tomorrowItems.map((item) => item.title)
+            tomorrow_items: tomorrowItems.map((item) => ({
+              category: item.category,
+              priority: item.priority,
+              reason: item.assistant_reason,
+              title: item.title
+            })),
+            completed_items: doneItems.map((item) => item.title)
           })
         }
       ]

@@ -3,6 +3,13 @@ export type InboxItem = {
   user_id: string;
   title: string;
   scheduled_for: string;
+  status: "planned" | "done";
+  priority: "low" | "medium" | "high";
+  category: "general" | "meeting" | "follow_up" | "finance" | "legal" | "project" | "personal";
+  suggested_next_action: string | null;
+  assistant_reason: string | null;
+  calendar_starts_at: string | null;
+  completed_at: string | null;
   created_at: string;
 };
 

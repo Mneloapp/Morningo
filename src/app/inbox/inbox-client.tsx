@@ -1,7 +1,7 @@
 "use client";
 
 import { type DragEvent, type FormEvent, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import { SetupAlert } from "@/components/setup-alert";
@@ -45,13 +45,13 @@ async function insertInboxItem(title: string, scheduledFor: string) {
   return payload.item;
 }
 
-async function moveInboxItem(id: string, scheduledFor: string) {
+async function moveInboxItem(id: string, scheduledFor: string, status: InboxItem["status"] = "planned") {
   const response = await fetch("/api/inbox-items", {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ id, scheduled_for: scheduledFor })
+    body: JSON.stringify({ id, scheduled_for: scheduledFor, status })
   });
   const payload = (await response.json()) as { item?: InboxItem; error?: string };
 
@@ -60,6 +60,28 @@ async function moveInboxItem(id: string, scheduledFor: string) {
   }
 
   return payload.item;
+}
+
+function getCalendarUrl(item: InboxItem) {
+  if (!item.calendar_starts_at) {
+    return null;
+  }
+
+  const start = new Date(item.calendar_starts_at);
+
+  if (Number.isNaN(start.getTime())) {
+    return null;
+  }
+
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const format = (date: Date) => date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    dates: `${format(start)}/${format(end)}`,
+    text: item.title
+  });
+
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
 export function InboxClient({ initialItems, userId }: InboxClientProps) {
@@ -72,8 +94,10 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
   const [dragTarget, setDragTarget] = useState<string | null>(null);
   const today = getTodayDateString();
   const tomorrow = getTomorrowDateString();
-  const todayItems = items.filter((item) => item.scheduled_for === today);
-  const tomorrowItems = items.filter((item) => item.scheduled_for === tomorrow);
+  const plannedItems = items.filter((item) => item.status !== "done");
+  const todayItems = plannedItems.filter((item) => item.scheduled_for === today);
+  const tomorrowItems = plannedItems.filter((item) => item.scheduled_for === tomorrow);
+  const doneItems = items.filter((item) => item.status === "done");
 
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,6 +113,13 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
       user_id: userId,
       title: nextTitle,
       scheduled_for: scheduledFor,
+      status: "planned",
+      priority: "medium",
+      category: "general",
+      suggested_next_action: null,
+      assistant_reason: null,
+      calendar_starts_at: null,
+      completed_at: null,
       created_at: new Date().toISOString()
     };
 
@@ -121,7 +152,7 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
     setDragTarget(null);
   }
 
-  async function handleDrop(event: DragEvent<HTMLElement>, nextScheduledFor: string) {
+  async function handleDrop(event: DragEvent<HTMLElement>, nextScheduledFor: string, nextStatus: InboxItem["status"] = "planned") {
     event.preventDefault();
 
     const itemId = event.dataTransfer.getData("text/plain") || draggedItemId;
@@ -129,7 +160,11 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
 
     setDragTarget(null);
 
-    if (!itemToMove || itemToMove.scheduled_for === nextScheduledFor || itemToMove.id.startsWith("optimistic-")) {
+    if (
+      !itemToMove ||
+      (itemToMove.scheduled_for === nextScheduledFor && itemToMove.status === nextStatus) ||
+      itemToMove.id.startsWith("optimistic-")
+    ) {
       return;
     }
 
@@ -137,11 +172,15 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
 
     setError(null);
     setItems((currentItems) =>
-      currentItems.map((item) => (item.id === itemToMove.id ? { ...item, scheduled_for: nextScheduledFor } : item))
+      currentItems.map((item) =>
+        item.id === itemToMove.id
+          ? { ...item, completed_at: nextStatus === "done" ? new Date().toISOString() : null, scheduled_for: nextScheduledFor, status: nextStatus }
+          : item
+      )
     );
 
     try {
-      const movedItem = await moveInboxItem(itemToMove.id, nextScheduledFor);
+      const movedItem = await moveInboxItem(itemToMove.id, nextScheduledFor, nextStatus);
       setItems((currentItems) => currentItems.map((item) => (item.id === movedItem.id ? movedItem : item)));
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Could not move item.";
@@ -152,7 +191,27 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
     }
   }
 
-  function renderItems(sectionItems: InboxItem[], emptyMessage: string) {
+  async function handleMarkDone(itemToComplete: InboxItem) {
+    const previousItems = items;
+
+    setError(null);
+    setItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === itemToComplete.id ? { ...item, completed_at: new Date().toISOString(), status: "done" } : item
+      )
+    );
+
+    try {
+      const completedItem = await moveInboxItem(itemToComplete.id, itemToComplete.scheduled_for, "done");
+      setItems((currentItems) => currentItems.map((item) => (item.id === completedItem.id ? completedItem : item)));
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Could not complete item.";
+      setItems(previousItems);
+      setError(message);
+    }
+  }
+
+  function renderItems(sectionItems: InboxItem[], emptyMessage: string, showDone = true) {
     if (!sectionItems.length) {
       return (
         <div className="px-6 py-14 text-center">
@@ -174,17 +233,50 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
             }`}
           >
             <div>
-              <p className="font-medium text-accent">{item.title}</p>
-              <p className="mt-1 text-xs text-neutral-500">{formatCreatedAt(item.created_at)}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-medium text-accent">{item.title}</p>
+                <span className="rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-500">
+                  {item.priority}
+                </span>
+                <span className="rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-semibold uppercase text-neutral-500">
+                  {item.category.replace("_", " ")}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-neutral-500">{item.completed_at ? `Done ${formatCreatedAt(item.completed_at)}` : formatCreatedAt(item.created_at)}</p>
+              {item.suggested_next_action ? <p className="mt-2 text-sm leading-5 text-neutral-600">{item.suggested_next_action}</p> : null}
+              {item.assistant_reason ? <p className="mt-1 text-xs leading-5 text-neutral-500">{item.assistant_reason}</p> : null}
             </div>
-            <button
-              type="button"
-              onClick={() => handleDelete(item)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
-              aria-label={`Delete ${item.title}`}
-            >
-              <Trash2 size={17} aria-hidden="true" />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              {getCalendarUrl(item) ? (
+                <a
+                  href={getCalendarUrl(item) ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
+                  aria-label={`Add ${item.title} to calendar`}
+                >
+                  <CalendarPlus size={17} aria-hidden="true" />
+                </a>
+              ) : null}
+              {showDone ? (
+                <button
+                  type="button"
+                  onClick={() => handleMarkDone(item)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
+                  aria-label={`Mark ${item.title} done`}
+                >
+                  <Check size={17} aria-hidden="true" />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => handleDelete(item)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-accent"
+                aria-label={`Delete ${item.title}`}
+              >
+                <Trash2 size={17} aria-hidden="true" />
+              </button>
+            </div>
           </li>
         ))}
       </ul>
@@ -261,7 +353,7 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
         </div>
       ) : null}
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-3">
         <section
           onDragEnter={() => setDragTarget(today)}
           onDragOver={(event) => event.preventDefault()}
@@ -292,6 +384,22 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
             <span className="text-sm font-medium text-neutral-500">{tomorrowItems.length}</span>
           </div>
           {renderItems(tomorrowItems, "Nothing scheduled for tomorrow.")}
+        </section>
+
+        <section
+          onDragEnter={() => setDragTarget("done")}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={() => setDragTarget(null)}
+          onDrop={(event) => handleDrop(event, today, "done")}
+          className={`min-h-[260px] overflow-hidden rounded-[28px] border bg-white transition ${
+            dragTarget === "done" ? "border-accent shadow-soft" : "border-neutral-200"
+          }`}
+        >
+          <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-neutral-500">Done</h2>
+            <span className="text-sm font-medium text-neutral-500">{doneItems.length}</span>
+          </div>
+          {renderItems(doneItems, "Nothing completed yet.", false)}
         </section>
       </div>
     </>

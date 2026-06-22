@@ -10,6 +10,9 @@ import { generateDailyBrief } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+const inboxItemSelect =
+  "id,user_id,title,scheduled_for,status,priority,category,suggested_next_action,assistant_reason,calendar_starts_at,completed_at,created_at";
+
 function BriefList({ title, items }: { title: string; items: string[] }) {
   return (
     <section className="rounded-[28px] border border-neutral-200 bg-white p-6">
@@ -33,10 +36,10 @@ export default async function DashboardPage() {
   const { supabase, user } = await requireUser();
   const result = await supabase
     .from("inbox_items")
-    .select("id,user_id,title,scheduled_for,created_at")
+    .select(inboxItemSelect)
     .order("created_at", { ascending: false })
     .limit(25);
-  const fallbackResult = result.error?.message.includes("scheduled_for")
+  const fallbackResult = result.error
     ? await supabase.from("inbox_items").select("id,user_id,title,created_at").order("created_at", { ascending: false }).limit(25)
     : null;
 
@@ -45,12 +48,24 @@ export default async function DashboardPage() {
   const today = getTodayDateString();
   const tomorrow = getTomorrowDateString();
 
-  const inboxItems = ((fallbackResult?.data ?? result.data ?? []) as Omit<InboxItem, "scheduled_for">[]).map((item) => ({
-    ...item,
-    scheduled_for: "scheduled_for" in item ? item.scheduled_for : today
+  const inboxItems = ((fallbackResult?.data ?? result.data ?? []) as Partial<InboxItem>[]).map((item) => ({
+    assistant_reason: item.assistant_reason ?? null,
+    calendar_starts_at: item.calendar_starts_at ?? null,
+    category: item.category ?? "general",
+    completed_at: item.completed_at ?? null,
+    created_at: item.created_at,
+    id: item.id,
+    priority: item.priority ?? "medium",
+    scheduled_for: item.scheduled_for ?? today,
+    status: item.status ?? "planned",
+    suggested_next_action: item.suggested_next_action ?? null,
+    title: item.title,
+    user_id: item.user_id
   })) as InboxItem[];
-  const todayItems = inboxItems.filter((item) => item.scheduled_for === today);
-  const tomorrowItems = inboxItems.filter((item) => item.scheduled_for === tomorrow);
+  const plannedItems = inboxItems.filter((item) => item.status !== "done");
+  const doneItems = inboxItems.filter((item) => item.status === "done");
+  const todayItems = plannedItems.filter((item) => item.scheduled_for === today);
+  const tomorrowItems = plannedItems.filter((item) => item.scheduled_for === tomorrow);
   const suggestedNextAction = todayItems[0]?.title ?? tomorrowItems[0]?.title;
 
   return (
@@ -104,7 +119,7 @@ export default async function DashboardPage() {
         <div className="grid gap-5 lg:grid-cols-3">
           <BriefList title="Focus Today" items={todayItems.slice(0, 5).map((item) => item.title)} />
           <BriefList title="Can Wait" items={tomorrowItems.slice(0, 5).map((item) => item.title)} />
-          <BriefList title="Risks" items={[]} />
+          <BriefList title="Completed" items={doneItems.slice(0, 5).map((item) => item.title)} />
         </div>
       </section>
     </main>
