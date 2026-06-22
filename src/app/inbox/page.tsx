@@ -9,7 +9,29 @@ import { addInboxItem, deleteInboxItem } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function InboxPage() {
+type InboxPageProps = {
+  searchParams: Promise<{
+    error?: string;
+  }>;
+};
+
+function formatCreatedAt(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Recently";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+export default async function InboxPage({ searchParams }: InboxPageProps) {
+  const { error: actionError } = await searchParams;
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("inbox_items")
@@ -39,6 +61,12 @@ export default async function InboxPage() {
           </Button>
         </form>
 
+        {actionError ? (
+          <div className="mb-8">
+            <SetupAlert title="Could not save item" message={actionError} />
+          </div>
+        ) : null}
+
         {error ? (
           <div className="mb-8">
             <SetupAlert
@@ -54,14 +82,7 @@ export default async function InboxPage() {
                 <li key={item.id} className="flex items-center justify-between gap-4 px-5 py-4">
                   <div>
                     <p className="font-medium text-accent">{item.title}</p>
-                    <p className="mt-1 text-xs text-neutral-500">
-                      {new Intl.DateTimeFormat("en", {
-                        month: "short",
-                        day: "numeric",
-                        hour: "numeric",
-                        minute: "2-digit"
-                      }).format(new Date(item.created_at))}
-                    </p>
+                    <p className="mt-1 text-xs text-neutral-500">{formatCreatedAt(item.created_at)}</p>
                   </div>
                   <form action={deleteInboxItem}>
                     <input type="hidden" name="id" value={item.id} />
