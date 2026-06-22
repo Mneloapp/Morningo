@@ -17,10 +17,27 @@ export async function addInboxItem(formData: FormData) {
 
   const { supabase, user } = await requireUser();
 
-  const { error } = await supabase.from("inbox_items").insert({
+  const insertPayload = {
     title,
     user_id: user.id
-  });
+  };
+
+  const { error } = await supabase.from("inbox_items").insert(insertPayload);
+
+  if (error?.message.includes('null value in column "content"')) {
+    const { error: retryError } = await supabase.from("inbox_items").insert({
+      ...insertPayload,
+      content: title
+    });
+
+    if (retryError) {
+      redirect(inboxErrorUrl(retryError.message));
+    }
+
+    revalidatePath("/inbox");
+    revalidatePath("/dashboard");
+    redirect("/inbox");
+  }
 
   if (error) {
     redirect(inboxErrorUrl(error.message));
