@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
@@ -42,6 +42,10 @@ async function insertInboxItem(title: string, userId: string) {
     .single();
 
   if (!error) {
+    if (!data) {
+      throw new Error("Supabase saved the item but did not return it.");
+    }
+
     return data as InboxItem;
   }
 
@@ -62,6 +66,10 @@ async function insertInboxItem(title: string, userId: string) {
     throw new Error(retryError.message);
   }
 
+  if (!retryData) {
+    throw new Error("Supabase saved the item but did not return it.");
+  }
+
   return retryData as InboxItem;
 }
 
@@ -70,7 +78,7 @@ export function InboxClient({ initialItems, userId }: InboxClientProps) {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
