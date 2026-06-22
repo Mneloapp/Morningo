@@ -88,7 +88,7 @@ export async function generateDailyBrief() {
   });
 
   if (insertError) {
-    throw new Error(insertError.message);
+    console.error("Daily brief could not be stored:", insertError.message);
   }
 
   revalidatePath("/dashboard");

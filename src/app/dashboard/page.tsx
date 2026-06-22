@@ -4,7 +4,7 @@ import { BrandHeader } from "@/components/brand-header";
 import { Button } from "@/components/button";
 import { SetupAlert } from "@/components/setup-alert";
 import { requireUser } from "@/lib/auth";
-import { type DailyBrief, type InboxItem } from "@/lib/types";
+import { type InboxItem } from "@/lib/types";
 import { generateDailyBrief } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -30,24 +30,15 @@ function BriefList({ title, items }: { title: string; items: string[] }) {
 
 export default async function DashboardPage() {
   const { supabase, user } = await requireUser();
-  const [{ data: inboxData, error: inboxError }, { data: briefData, error: briefError }] = await Promise.all([
-    supabase
-      .from("inbox_items")
-      .select("id,user_id,title,created_at")
-      .order("created_at", { ascending: false })
-      .limit(6),
-    supabase
-      .from("daily_briefs")
-      .select("id,user_id,focus_today,can_wait,risks,suggested_next_action,created_at")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-  ]);
+  const { data: inboxData, error: inboxError } = await supabase
+    .from("inbox_items")
+    .select("id,user_id,title,created_at")
+    .order("created_at", { ascending: false })
+    .limit(6);
 
-  const setupError = inboxError?.message ?? briefError?.message ?? null;
+  const setupError = inboxError?.message ?? null;
 
   const inboxItems = (inboxData ?? []) as InboxItem[];
-  const brief = briefData as DailyBrief | null;
 
   return (
     <main className="min-h-screen bg-white">
@@ -84,7 +75,7 @@ export default async function DashboardPage() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/55">Suggested Next Action</p>
               <p className="mt-4 max-w-3xl text-2xl font-semibold leading-9">
-                {brief?.suggested_next_action ?? "Generate your first brief to turn loose inbox items into a plan."}
+                {inboxItems[0]?.title ?? "Generate your first brief to turn loose inbox items into a plan."}
               </p>
             </div>
             <Link
@@ -95,23 +86,12 @@ export default async function DashboardPage() {
               <ArrowRight size={16} aria-hidden="true" />
             </Link>
           </div>
-          {brief ? (
-            <p className="mt-7 text-xs font-medium uppercase tracking-[0.16em] text-white/45">
-              Generated{" "}
-              {new Intl.DateTimeFormat("en", {
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit"
-              }).format(new Date(brief.created_at))}
-            </p>
-          ) : null}
         </div>
 
         <div className="grid gap-5 lg:grid-cols-3">
-          <BriefList title="Focus Today" items={brief?.focus_today ?? inboxItems.slice(0, 3).map((item) => item.title)} />
-          <BriefList title="Can Wait" items={brief?.can_wait ?? inboxItems.slice(3, 6).map((item) => item.title)} />
-          <BriefList title="Risks" items={brief?.risks ?? []} />
+          <BriefList title="Focus Today" items={inboxItems.slice(0, 3).map((item) => item.title)} />
+          <BriefList title="Can Wait" items={inboxItems.slice(3, 6).map((item) => item.title)} />
+          <BriefList title="Risks" items={[]} />
         </div>
       </section>
     </main>
